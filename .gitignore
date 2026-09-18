@@ -1,0 +1,41 @@
+﻿# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+env/
+venv/
+.venv/
+.env
+.conda/
+
+# PyInstaller
+build/
+dist/
+*.manifest
+*.spec.bak
+
+# Logs e cache
+*.log
+.pytest_cache/
+.mypy_cache/
+.coverage
+htmlcov/
+
+# OS
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# App específico - dados do usuário e binários não versionar
+filtros_salvos.json
+Executaveis/
+*.exe
+*.rar
