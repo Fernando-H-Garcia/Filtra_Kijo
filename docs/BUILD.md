@@ -80,16 +80,23 @@ Copy-Item "dist\Filtra_KIJO_V_4_2_0.exe" "$dest\FiltraKijo_$versao.exe" -Force
 - **`dist` vazia após interrupção**: normal se `Stop-Process` foi usado antes de `Building EXE completed`. Refaça o build completo.
 - **Antivírus bloqueando `.exe`**: adicione exceção para `dist\` e `Executaveis\`.
 
-## 7. Ícone - Correção do quadrado azul na barra de tarefas (v4.2.0)
+## 7. Ícone - Correção do quadrado azul + embaçado + duplicado na barra (v4.2.0)
 
-Problema: `icon='fk_icon.ico'` no spec só muda o ícone do arquivo `.exe` no Explorer. A janela `CTk` usava ícone padrão (quadrado azul) porque nenhum `iconbitmap`/`iconphoto` era chamado.
+Problema 1 - quadrado azul: `icon='fk_icon.ico'` no spec só muda o ícone do arquivo `.exe` no Explorer. A janela `CTk` usava ícone padrão (quadrado azul) porque nenhum `iconbitmap`/`iconphoto` era chamado.
+Problema 2 - embaçado: `Image.open(ico).resize((32,32))` único é esticado em DPI 125%/150% (32→48px borrado).
+Problema 3 - duplicado: fixar o `.exe` antigo (sem AppUserModelID) e rodar o novo (com ID diferente) faz Windows criar 2 botões. O em execução ficava borrado porque usava o ícone da janela, não o do arquivo.
 
 Solução v4.2.0:
+- `main.py:5` **DEVE** setar `SetCurrentProcessExplicitAppUserModelID("Tecsoil.FiltraKIJO.v4.2.0")` **antes** de `ctk.CTk()` (unifica fixado vs em execução, evita duplicar)
 - `main.spec:4` bundle: `datas=[('fk_icon.ico', '.')]` expõe o ícone em `sys._MEIPASS` quando congelado
-- `gui/application.py:24` helper `_resource_path()` resolve `fk_icon.ico` para dev e para `sys._MEIPASS`
-- `gui/application.py:27` helper `_set_window_icon()` faz: `SetCurrentProcessExplicitAppUserModelID("Tecsoil.FiltraKIJO.v4.2.0")` + `iconbitmap()` + `iconphoto()` via `PIL.ImageTk` (mantém referência `_icon_photo` contra GC)
+- `gui/application.py:23` helper `_resource_path()` resolve `fk_icon.ico` para dev e para `sys._MEIPASS`
+- `gui/application.py:32` helper `_create_fk_image(tam)` gera FK nítido nativo em cada tamanho (16,20,24,32,48,64) - sólido em ≤32, `arialbd.ttf` 0.60-0.62*tam, evita resize borrado
+- `gui/application.py:70` helper `_set_window_icon()` faz: `SetCurrentProcessExplicitAppUserModelID` + `iconbitmap(ico)` + `iconphoto(True, *6photos)` (16,20,24,32,48,64) - Windows escolhe o melhor para DPI, mantém refs `_icon_refs` contra GC
 - Chamado em `gui/application.py:205` no `__init__` do `CTk` e nos `Toplevel`s (export, config colunas, loading) e em `gui/manual.py:22` para o manual
-- Resultado: ícone FK idêntico no Explorer, na barra de tarefas e no Alt-Tab, tanto rodando `python main.py` quanto no `.exe`
+- `gerar_icone_fk.py:6` regenerado com 8 tamanhos (16,20,24,32,48,64,128,256) nítidos, sólido em pequenos
+- Resultado: ícone FK idêntico e nítido no Explorer, na barra fixada e na janela em execução (mesmo botão, sem duplicar), em `python main.py` e no `.exe`
+
+**Se ainda duplicar/borrar após atualizar o exe:** desafixe o antigo, rode o novo `Filtra_KIJO_V_4_2_0.exe`, com ele aberto clique direito no ícone **em execução** (o nítido) → `Fixar na barra de tarefas`. O atalho novo herda o mesmo AppUserModelID e agrupará corretamente.
 
 ## 8. Referências
 
