@@ -28,7 +28,7 @@ class ManualDinamico:
             if not os.path.exists(p):
                 p = os.path.join(os.path.abspath(os.path.join(os.path.dirname(__file__), "..")), "fk_icon.ico")
             try:
-                ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID("Tecsoil.FiltraKIJO.v4.2.0")
+                ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID("Tecsoil.FiltraKIJO.v4.3.0")
             except Exception:
                 pass
             if os.path.exists(p):

@@ -1,4 +1,4 @@
-# core/filter_engine.py  —  Filtra_KIJO_V_3_4_0
+# core/filter_engine.py  —  Filtra_KIJO_V_4_3_0
 # Migração para Polars para Alta Performance
 
 import polars as pl

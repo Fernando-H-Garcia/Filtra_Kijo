@@ -4,12 +4,13 @@ from PyInstaller.utils.hooks import collect_all
 datas = [('fk_icon.ico', '.')]
 binaries = []
 hiddenimports = []
-tmp_ret = collect_all('customtkinter')
+tmp_ret = collect_all('PySide6')
 datas += tmp_ret[0]; binaries += tmp_ret[1]; hiddenimports += tmp_ret[2]
-
+tmp_ret2 = collect_all('shiboken6')
+datas += tmp_ret2[0]; binaries += tmp_ret2[1]; hiddenimports += tmp_ret2[2]
 
 a = Analysis(
-    ['main.py'],
+    ['main_qt.py'],
     pathex=[],
     binaries=binaries,
     datas=datas,
@@ -18,7 +19,7 @@ a = Analysis(
     hooksconfig={},
     runtime_hooks=[],
     excludes=[
-        'PyQt5', 'PySide6', 'dask', 'scipy', 'matplotlib', 
+        'customtkinter', 'tkinter', 'PyQt5', 'dask', 'scipy', 'matplotlib',
         'IPython', 'skimage', 'docutils', 'boto3', 'botocore',
         'sqlalchemy', 'paramiko'
     ],
@@ -33,7 +34,7 @@ exe = EXE(
     a.binaries,
     a.datas,
     [],
-    name='Filtra_KIJO_V_4_3_0',
+    name='Filtra_KIJO_V_4_3_0_Qt',
     debug=False,
     bootloader_ignore_signals=False,
     strip=False,

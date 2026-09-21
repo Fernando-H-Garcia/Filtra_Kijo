@@ -1,4 +1,4 @@
-# core/file_processor.py  —  Filtra_KIJO_V_3_6_0
+# core/file_processor.py  —  Filtra_KIJO_V_4_3_0
 # Performance Extrema: Polars Batched Processing (Streaming)
 # + Deduplicação Inteligente
 # + Auditoria de Duplicatas

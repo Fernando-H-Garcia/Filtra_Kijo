@@ -87,7 +87,7 @@ def _set_window_icon(window):
                 icon_path = alt
         # Agrupamento correto na barra de tarefas (evita ícone genérico)
         try:
-            ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID("Tecsoil.FiltraKIJO.v4.2.0")
+            ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID("Tecsoil.FiltraKIJO.v4.3.0")
         except Exception:
             pass
         if os.path.exists(icon_path):

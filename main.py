@@ -7,7 +7,7 @@ import sys
 # --- APP ID único: DEVE vir antes de criar qualquer janela ---
 # Unifica o ícone fixado na barra com o ícone em execução (evita duplicar + embaçado)
 try:
-    ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID("Tecsoil.FiltraKIJO.v4.2.0")
+    ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID("Tecsoil.FiltraKIJO.v4.3.0")
 except Exception:
     pass
 
