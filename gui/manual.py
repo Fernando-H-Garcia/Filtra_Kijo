@@ -437,10 +437,24 @@ class ManualDinamico:
                        "As alterações só serão salvas se você clicar no 💾 novamente.", "destaque")
 
         self._separador()
+        self._inserir("Como renomear uma regra salva:", "h2")
+
+        self._inserir("Clique com o botão direito sobre a regra no painel \"📜 Regras Salvas\" "
+                       "e escolha \"✏️ Renomear\". Uma janela será aberta para digitar o novo nome. "
+                       "O programa não permite nomes duplicados ou vazios.", "body")
+
+        self._inserir("Nomes duplicados são tratados automaticamente: se você clicar "
+                       "várias vezes na mesma regra salva (ex: \"teste\") ou em \"+ Nova Regra\" "
+                       "com nome repetido, o programa cria \"teste\", \"teste - 2\", \"teste - 3\" "
+                       "reaproveitando o menor número disponível. Ex: se \"teste 3\" já existe "
+                       "e você adiciona outro \"teste 3\", vira \"teste 3 - 2\".", "destaque")
+
+        self._separador()
         self._inserir("Como excluir uma regra salva:", "h2")
 
         self._inserir("No painel \"📜 Regras Salvas\", passe o mouse sobre a regra e clique "
-                       "no ícone de lixeira 🗑 à direita do nome.", "body")
+                       "no ícone de lixeira 🗑 à direita do nome. Também é possível "
+                       "excluir pelo menu do botão direito (\"🗑 Excluir\").", "body")
 
         self._separador()
         self._inserir("Onde as regras ficam armazenadas?", "h2")
@@ -479,6 +493,7 @@ class ManualDinamico:
         self._inserir("5. O processamento começará e você verá:", "bullet")
         self._inserir("  → Um cronômetro mostrando o tempo decorrido.", "exemplo")
         self._inserir("  → Uma barra de progresso.", "exemplo")
+        self._inserir("  → Um botão vermelho \"✕ CANCELAR\" ao lado dos demais — clique para interromper a qualquer momento (o programa limpa os arquivos temporários e volta a \"Aguardando...\").", "exemplo")
         self._inserir("  → A contagem de linhas encontradas ao finalizar.", "exemplo")
 
         self._separador()
@@ -498,6 +513,15 @@ class ManualDinamico:
         self._inserir("O Filtra KIJO utiliza o motor Polars, que é extremamente rápido. "
                        "Você pode processar arquivos de centenas de megabytes sem problemas. "
                        "O processamento acontece em segundo plano, então a tela não trava.", "body")
+
+        self._separador()
+        self._inserir("Ordem da saída (v4.2.1):", "h2")
+
+        self._inserir("Desde a v4.2.1 a ordenação por data/hora do cabeçalho foi removida "
+                       "para voltar ao comportamento correto da v4.1.0. O arquivo de saída mantém "
+                       "a ordem de chegada dos dados (ordem dos arquivos + ordem das linhas dentro de cada lote). "
+                       "A correção também elimina o erro \"seção mapeada pelo usuário aberta (1224)\" "
+                       "causado pelo re-ordenamento com memory-map.", "body")
 
     # ==========================================
     # SEÇÃO 7 — ANALISANDO DUPLICADAS
@@ -538,11 +562,15 @@ class ManualDinamico:
         self._inserir("❓ Perguntas Frequentes", "h1")
 
         # --- Pergunta 1 ---
-        self._inserir("O programa travou?", "h2")
+        self._inserir("O programa travou? Como cancelar?", "h2")
         self._inserir("Provavelmente não! Durante o processamento de arquivos grandes, "
                        "a tela pode parecer lenta, mas o processamento continua em segundo "
                        "plano. Observe o cronômetro e a barra de progresso — se estiverem "
-                       "avançando, tudo está funcionando.", "body")
+                       "avançando, tudo está funcionando. Se precisar interromper, clique no "
+                       "botão vermelho \"✕ CANCELAR\" que aparece ao lado de \"Iniciar Processamento\" "
+                       "enquanto o status estiver \"⌛ PROCESSANDO...\" ou \"⌛ ANALISANDO...\". "
+                       "O cancelamento é checado a cada arquivo e a cada lote de 50 mil linhas, "
+                       "remove os .temp.csv pendentes e libera a memória.", "body")
 
         self._separador()
 

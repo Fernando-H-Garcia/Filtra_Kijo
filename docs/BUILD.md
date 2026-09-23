@@ -42,7 +42,16 @@ pyinstaller --clean --noconfirm main.spec
 98923 INFO: Build complete! The results are available in: ...\dist
 ```
 
-Resultado: `dist\Filtra_KIJO_V_4_2_0.exe` (v4.2.0, `core/config.py:2` -> `VERSION="4.2.0"`)
+Resultado: `dist\Filtra_KIJO_V_4_2_0.exe` (v4.2.1, `core/config.py:2` -> `VERSION="4.2.0"` mantido, docs `BUSINESS_RULES v4.2.1`)
+
+## 2.1 Histórico de builds (aprendizado)
+
+- `18/09/2026 ~98s` - build base v4.2.0
+- `23/09/2026 11:10 ~107s` - fix renomear biblioteca espremido (440x240 height44), inclui menu contexto
+- `23/09/2026 11:56 ~102s` - fix 1224 `.sorted` temporário + `del df+gc` antes de `_safe_replace`
+- `23/09/2026 12:12 ~127s` - fix `NoneType stat` (`if temp_csv_final:` antes de `_safe_remove`)
+- `23/09/2026 14:08 ~103s` - limpeza temps Excel/TXT pós-replace
+- `23/09/2026 17:00 ~113s` - **v4.2.1 remove ordenação timestamp** (volta 4.1), mantém `_safe_*` retry 1224 e cancelamento
 
 ## 3. Publicação (opcional)
 
@@ -79,6 +88,9 @@ Copy-Item "dist\Filtra_KIJO_V_4_2_0.exe" "$dest\FiltraKijo_$versao.exe" -Force
 - **Warnings `Hidden import "jinja2" not found!`**: ignorável (hook de pandas). Aparece mesmo no build rápido e não impede `Build complete!`.
 - **`dist` vazia após interrupção**: normal se `Stop-Process` foi usado antes de `Building EXE completed`. Refaça o build completo.
 - **Antivírus bloqueando `.exe`**: adicione exceção para `dist\` e `Executaveis\`.
+- **`Copy-Item` falha "arquivo sendo usado por outro processo"**: `taskkill /f /im FiltraKijo_v4.2.0.exe; Start-Sleep 1; Copy-Item ... -Force` (`Executaveis` em uso por teste manual).
+- **`stat: path should be string... not NoneType`**: era `temp_csv_final = None` antes de `_safe_remove`; fix `if temp_csv_final:` (`core/file_processor.py:509,554`).
+- **`ERROR_USER_MAPPED_FILE 1224`**: `pl.read_csv(... timestamp, raw_kijo)` mapeia `t_file`; `write_csv` no mesmo `t_file` falha. Fix v4.2.1 → remove sort + `_safe_replace/_safe_remove` retry `0.05*2^n` + `_ensure_reader_closed`.
 
 ## 7. Ícone - Correção do quadrado azul + embaçado + duplicado na barra (v4.2.0)
 
@@ -102,5 +114,7 @@ Solução v4.2.0:
 
 - `main.py:1` - entrypoint (`Analysis(['main.py'])`)
 - `main.spec:1` - spec completo (coletando `customtkinter`, excluindo `PyQt5`, `scipy`, etc.)
-- `core/config.py:2` - `VERSION="4.2.0"` (exibido em `gui/application.py:165` e `gui/manual.py:18`)
+- `core/config.py:2` - `VERSION="4.2.0"` (exibido em `gui/application.py:273` e `gui/manual.py:18`)
 - Log completo do build rápido: `18/09/2026 10:??` em PowerShell `filtra-kijo-slim` (atualizado para `Filtra_KIJO_V_4_2_0.exe`)
+- `docs/BUSINESS_RULES.md:17` - changelog v4.2.1 (1224, NoneType, cancelamento, renomear gap-reuse)
+- `gui/manual.py:413-580` - ajuda atualizada: renomear botão direito, `✕ CANCELAR`, ordem saída v4.1
