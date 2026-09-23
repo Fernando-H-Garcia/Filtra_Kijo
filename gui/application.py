@@ -336,6 +336,7 @@ class AplicacaoVisual:
         self._status_atual = (
             "Aguardando..."
         )
+        self._cancel_processamento = False
 
     # ==========================================================
     # BIBLIOTECA
@@ -787,6 +788,18 @@ class AplicacaoVisual:
             padx=10
         )
 
+        self.btn_cancelar = ctk.CTkButton(
+            frame_botoes,
+            text="✕ CANCELAR",
+            command=self.cancelar_processamento,
+            font=("Segoe UI", 15, "bold"),
+            height=50,
+            width=180,
+            fg_color=COLOR_DANGER,
+            hover_color="#DC2626"
+        )
+        # inicialmente oculto; será mostrado apenas durante processamento
+
     # ==========================================================
     # TIMER
     # ==========================================================
@@ -1138,6 +1151,7 @@ class AplicacaoVisual:
         )
 
         self._status_atual = "⌛ ANALISANDO..."
+        self._cancel_processamento = False
 
         self.btn_processar.configure(
             state="disabled"
@@ -1147,6 +1161,7 @@ class AplicacaoVisual:
             state="disabled",
             text="⌛ ANALISANDO..."
         )
+        self._mostrar_btn_cancelar()
 
         self._timer_inicio = time.time()
 
@@ -1224,6 +1239,7 @@ class AplicacaoVisual:
                 return
 
         self._status_atual = "⌛ PROCESSANDO..."
+        self._cancel_processamento = False
 
         self.btn_processar.configure(
             state="disabled",
@@ -1233,6 +1249,7 @@ class AplicacaoVisual:
         self.btn_duplicadas.configure(
             state="disabled"
         )
+        self._mostrar_btn_cancelar()
 
         self._timer_inicio = time.time()
 
@@ -1303,7 +1320,9 @@ class AplicacaoVisual:
                     self.atualizar_ui_progresso,
 
                 status_callback=
-                    self.atualizar_ui_status
+                    self.atualizar_ui_status,
+
+                cancel_callback=self._is_cancel_requested
             )
 
             resultado = (
@@ -1318,13 +1337,26 @@ class AplicacaoVisual:
                 )
             )
 
+            # Se foi cancelado mas não lançou (chegou ao fim logo após flag), tratar como cancel
+            if self._is_cancel_requested():
+                self.root.after(0, self._finalizar_cancelamento)
+                return
+
             self.root.after(
                 0,
                 lambda r=resultado:
                     self.finalizar_processamento(r)
             )
 
+        except InterruptedError as erro_cancel:
+            self.root.after(0, self._finalizar_cancelamento)
+
         except Exception as erro:
+
+            # Se foi cancelado, não mostrar erro
+            if self._is_cancel_requested() or "cancelado" in str(erro).lower():
+                self.root.after(0, self._finalizar_cancelamento)
+                return
 
             mensagem = str(erro)
 
@@ -1363,7 +1395,9 @@ class AplicacaoVisual:
                     self.atualizar_ui_progresso,
 
                 status_callback=
-                    self.atualizar_ui_status
+                    self.atualizar_ui_status,
+
+                cancel_callback=self._is_cancel_requested
             )
 
             resultado = (
@@ -1374,13 +1408,24 @@ class AplicacaoVisual:
                 )
             )
 
+            if self._is_cancel_requested():
+                self.root.after(0, self._finalizar_cancelamento)
+                return
+
             self.root.after(
                 0,
                 lambda r=resultado:
                     self.finalizar_duplicadas(r)
             )
 
+        except InterruptedError:
+            self.root.after(0, self._finalizar_cancelamento)
+
         except Exception as erro:
+
+            if self._is_cancel_requested() or "cancelado" in str(erro).lower():
+                self.root.after(0, self._finalizar_cancelamento)
+                return
 
             mensagem = str(erro)
 
@@ -1461,6 +1506,8 @@ class AplicacaoVisual:
         )
 
         self._timer_inicio = None
+        self._cancel_processamento = False
+        self._esconder_btn_cancelar()
 
         self.btn_processar.configure(
             state="normal",
@@ -1513,6 +1560,8 @@ class AplicacaoVisual:
         )
 
         self._timer_inicio = None
+        self._cancel_processamento = False
+        self._esconder_btn_cancelar()
 
         self.btn_processar.configure(
             state="normal"
@@ -1564,6 +1613,7 @@ class AplicacaoVisual:
             self.root.after_cancel(self._timer_id)
             self._timer_id = None
         self._timer_inicio = None
+        self._cancel_processamento = False
 
         self.btn_processar.configure(
             state="normal",
@@ -1574,6 +1624,15 @@ class AplicacaoVisual:
             state="normal",
             text="🔍 ANALISAR DUPLICADAS"
         )
+        # esconder botão cancelar
+        try:
+            self.btn_cancelar.pack_forget()
+        except Exception:
+            pass
+        try:
+            self.btn_cancelar.configure(state="disabled")
+        except Exception:
+            pass
 
         self._status_atual = "Aguardando..."
 
@@ -1581,6 +1640,108 @@ class AplicacaoVisual:
             text="🕒 00:00 | 📄 Aguardando...",
             text_color=COLOR_TEXT_DARK
         )
+
+    # ==========================================================
+    # CANCELAMENTO
+    # ==========================================================
+
+    def _mostrar_btn_cancelar(self):
+        try:
+            self.btn_cancelar.configure(state="normal")
+            self.btn_cancelar.pack(side=tk.LEFT, padx=10)
+        except Exception:
+            pass
+
+    def _esconder_btn_cancelar(self):
+        try:
+            self.btn_cancelar.pack_forget()
+        except Exception:
+            pass
+        try:
+            self.btn_cancelar.configure(state="disabled")
+        except Exception:
+            pass
+
+    def cancelar_processamento(self):
+        if self._cancel_processamento:
+            return
+        self._cancel_processamento = True
+        self._status_atual = "✕ Cancelando..."
+        self.lbl_status_unificado.configure(
+            text=f"🕒 --:-- | {self._status_atual}",
+            text_color=COLOR_DANGER
+        )
+        self.btn_cancelar.configure(state="disabled", text="✕ Cancelando...")
+        self.btn_processar.configure(state="disabled")
+        self.btn_duplicadas.configure(state="disabled")
+
+    def _is_cancel_requested(self):
+        return bool(getattr(self, "_cancel_processamento", False))
+
+    def _finalizar_cancelamento(self):
+        if self._timer_id:
+            self.root.after_cancel(self._timer_id)
+            self._timer_id = None
+        self._timer_inicio = None
+        self._cancel_processamento = False
+        self.progress_bar.set(0)
+        self.btn_processar.configure(state="normal", text="⚡ INICIAR PROCESSAMENTO")
+        self.btn_duplicadas.configure(state="normal", text="🔍 ANALISAR DUPLICADAS")
+        try:
+            self.btn_cancelar.configure(state="disabled", text="✕ CANCELAR")
+            self.btn_cancelar.pack_forget()
+        except Exception:
+            pass
+        self._status_atual = "Cancelado pelo usuário."
+        self.lbl_status_unificado.configure(
+            text=f"🕒 00:00 | ✕ Cancelado.",
+            text_color=COLOR_DANGER
+        )
+        gc.collect()
+        self.limpar_memoria()
+
+    def _gerar_nome_unico(self, nome_base, verificar_biblioteca=True):
+        """Gera um nome único encontrando o próximo número disponível.
+        
+        Args:
+            nome_base: Nome base desejado
+            verificar_biblioteca: Se True, verifica também na biblioteca (para 'Nova Regra').
+                                 Se False, verifica apenas filtros ativos (para carregar da biblioteca).
+        """
+        # Sempre verifica filtros ativos na tela
+        nomes_existentes = set()
+        for info in self.filtros.values():
+            nome_ativo = info["nome_entry"].get().strip()
+            if nome_ativo:
+                nomes_existentes.add(nome_ativo)
+        
+        # Verifica biblioteca apenas se solicitado (para nova regra manual)
+        if verificar_biblioteca:
+            nomes_existentes.update(self.biblioteca_filtros.keys())
+        
+        if nome_base not in nomes_existentes:
+            return nome_base
+        
+        # Encontra todos os números já usados para este nome base
+        numeros_usados = set()
+        prefixo = f"{nome_base} - "
+        for nome in nomes_existentes:
+            if nome == nome_base:
+                numeros_usados.add(1)
+            elif nome.startswith(prefixo):
+                try:
+                    num = int(nome[len(prefixo):])
+                    numeros_usados.add(num)
+                except ValueError:
+                    pass
+        
+        # Encontra o menor número disponível (começando do 2)
+        for i in range(2, 1000):
+            if i not in numeros_usados:
+                return f"{nome_base} - {i}"
+        
+        return f"{nome_base} - {len(numeros_usados) + 2}"
+
     def criar_filtro(self, nome_inicial=None, condicoes_iniciais=None, colunas_saida_iniciais=None):
         self.contador_filtros += 1
         f_id = f"filtro_{self.contador_filtros}"
@@ -1588,7 +1749,14 @@ class AplicacaoVisual:
         card.pack(fill="x", padx=10, pady=10)
         header = ctk.CTkFrame(card, height=45, fg_color="#F1F5F9")
         header.pack(fill="x")
-        nome_default = nome_inicial if nome_inicial else "Nova Regra"
+        
+        if nome_inicial:
+            # Carregando da biblioteca: verifica apenas filtros ativos (não a biblioteca)
+            nome_default = self._gerar_nome_unico(nome_inicial, verificar_biblioteca=False)
+        else:
+            # Nova regra manual: verifica biblioteca + filtros ativos
+            nome_default = self._gerar_nome_unico("Nova Regra", verificar_biblioteca=True)
+        
         entry_nome = ctk.CTkEntry(header, placeholder_text="Nome do Filtro", width=280, fg_color="transparent", border_width=0, font=("Segoe UI", 15, "bold"))
         entry_nome.insert(0, nome_default); entry_nome.pack(side=tk.LEFT, padx=10, pady=5)
         
@@ -1696,6 +1864,68 @@ class AplicacaoVisual:
         self.atualizar_lista_biblioteca()
         self.lbl_status_unificado.configure(text=f"Regra '{nome}' salva.")
 
+    def _renomear_filtro_biblioteca(self, nome_antigo):
+        """Abre um diálogo para renomear um filtro salvo na biblioteca."""
+        if nome_antigo not in self.biblioteca_filtros:
+            return
+        
+        pop = ctk.CTkToplevel(self.root)
+        pop.title("Renomear Regra")
+        _set_window_icon(pop)
+        w, h = 440, 240
+        x = (pop.winfo_screenwidth() // 2) - (w // 2)
+        y = (pop.winfo_screenheight() // 2) - (h // 2)
+        pop.geometry(f"{w}x{h}+{x}+{y}")
+        pop.attributes("-topmost", True)
+        pop.grab_set()
+        pop.resizable(False, False)
+
+        ctk.CTkLabel(pop, text="✏️ Renomear Regra Salva", font=("Segoe UI", 16, "bold"), text_color=COLOR_TEXT_DARK).pack(pady=(20, 5))
+        ctk.CTkLabel(pop, text=f"Nome atual: {nome_antigo}", font=("Segoe UI", 12), text_color=COLOR_SECONDARY).pack(pady=(0, 10))
+
+        entry_novo = ctk.CTkEntry(pop, width=320, font=("Segoe UI", 14))
+        entry_novo.insert(0, nome_antigo)
+        entry_novo.pack(pady=10)
+        entry_novo.focus()
+        entry_novo.select_range(0, tk.END)
+
+        def confirmar():
+            novo_nome = entry_novo.get().strip()
+            if not novo_nome:
+                messagebox.showwarning("Aviso", "O nome não pode ser vazio!")
+                return
+            if novo_nome == nome_antigo:
+                pop.destroy()
+                return
+            if novo_nome in self.biblioteca_filtros:
+                messagebox.showwarning("Aviso", f"Já existe uma regra com o nome '{novo_nome}'!")
+                return
+            
+            self.biblioteca_filtros[novo_nome] = self.biblioteca_filtros.pop(nome_antigo)
+            self._salvar_biblioteca()
+            self.atualizar_lista_biblioteca()
+            self.lbl_status_unificado.configure(text=f"Regra renomeada para '{novo_nome}'.")
+            pop.destroy()
+
+        btn_frame = ctk.CTkFrame(pop, fg_color="transparent")
+        btn_frame.pack(pady=25, fill="x", padx=30)
+        ctk.CTkButton(btn_frame, text="Cancelar", height=44, fg_color="#6B7280", hover_color="#4B5563", font=("Segoe UI", 13, "bold"), command=pop.destroy).pack(side=tk.LEFT, expand=True, padx=10)
+        ctk.CTkButton(btn_frame, text="Salvar", height=44, fg_color=COLOR_SUCCESS, hover_color="#059669", font=("Segoe UI", 13, "bold"), command=confirmar).pack(side=tk.LEFT, expand=True, padx=10)
+
+        pop.bind("<Return>", lambda e: confirmar())
+        pop.bind("<Escape>", lambda e: pop.destroy())
+
+    def _mostrar_menu_contexto_biblioteca(self, event, nome):
+        """Mostra menu de contexto ao clicar com botão direito em um filtro salvo."""
+        menu = tk.Menu(self.root, tearoff=0)
+        menu.add_command(label="✏️ Renomear", command=lambda: self._renomear_filtro_biblioteca(nome))
+        menu.add_separator()
+        menu.add_command(label="🗑 Excluir", command=lambda: self.excluir_da_biblioteca(nome))
+        try:
+            menu.tk_popup(event.x_root, event.y_root)
+        finally:
+            menu.grab_release()
+
     def atualizar_lista_biblioteca(self):
         for w in self.scroll_lib.winfo_children(): w.destroy()
         has_files = len(self.arquivos_selecionados) > 0
@@ -1724,6 +1954,10 @@ class AplicacaoVisual:
             item.pack(fill="x", pady=4, padx=5)
             if not has_files:
                 item.configure(state="disabled")
+            
+            # Bind do botão direito para menu de contexto
+            item.bind("<Button-3>", lambda e, n=nome: self._mostrar_menu_contexto_biblioteca(e, n))
+            
             btn_del = ctk.CTkButton(item, text="🗑", width=32, height=32, fg_color="transparent", text_color=COLOR_SECONDARY, hover_color="#FEE2E2", font=("Segoe UI", 18), command=lambda n=nome: self.excluir_da_biblioteca(n))
             btn_del.place(relx=0.94, rely=0.5, anchor="e")
 

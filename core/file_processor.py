@@ -7,11 +7,59 @@ import logging
 import os
 import time
 import gc
+import errno
 
 import polars as pl
 import xxhash
 
 from core.filter_engine import FilterEngine
+
+
+def _safe_remove(path, max_retries=5, base_delay=0.05):
+    """Remove arquivo com retry para evitar ERROR_USER_MAPPED_FILE (1224)."""
+    for attempt in range(max_retries):
+        try:
+            if os.path.exists(path):
+                os.remove(path)
+            return True
+        except OSError as e:
+            if e.errno == errno.EACCES or (hasattr(errno, 'WSAEACCES') and e.errno == errno.WSAEACCES) or e.winerror == 1224:
+                if attempt < max_retries - 1:
+                    time.sleep(base_delay * (2 ** attempt))  # exponential backoff
+                    gc.collect()  # force release of any mmap handles
+                    continue
+            raise
+    return False
+
+
+def _safe_replace(src, dst, max_retries=5, base_delay=0.05):
+    """Replace atômico com retry para evitar ERROR_USER_MAPPED_FILE (1224)."""
+    for attempt in range(max_retries):
+        try:
+            os.replace(src, dst)
+            return True
+        except OSError as e:
+            if e.errno == errno.EACCES or (hasattr(errno, 'WSAEACCES') and e.errno == errno.WSAEACCES) or getattr(e, 'winerror', None) == 1224:
+                if attempt < max_retries - 1:
+                    time.sleep(base_delay * (2 ** attempt))
+                    gc.collect()
+                    continue
+            raise
+    return False
+
+
+def _ensure_reader_closed(reader):
+    """Força fechamento do reader Polars batched para liberar memory-maps."""
+    try:
+        # Consumir batches restantes para fechar o reader internamente
+        while True:
+            batches = reader.next_batches(1)
+            if not batches:
+                break
+    except Exception:
+        pass
+    # Força coleta de lixo para liberar mmap
+    gc.collect()
 
 
 class FileProcessor:
@@ -21,16 +69,22 @@ class FileProcessor:
         arquivos_selecionados,
         progress_callback=None,
         status_callback=None,
-        filtros=None
+        filtros=None,
+        cancel_callback=None
     ):
         self.arquivos_selecionados = arquivos_selecionados
         self.progress_callback = progress_callback
         self.status_callback = status_callback
         self.filtros = filtros or {}
+        self.cancel_callback = cancel_callback
 
         self.tamanho_total = 0
         self.tamanho_processado = 0
         self.ultima_atualizacao = time.time()
+
+    def _check_cancel(self):
+        if self.cancel_callback and self.cancel_callback():
+            raise InterruptedError("Processamento cancelado pelo usuário.")
 
     # ==========================================================
     # PROCESSAMENTO NORMAL
@@ -131,6 +185,8 @@ class FileProcessor:
                 self.arquivos_selecionados
             ):
 
+                self._check_cancel()
+
                 if self.status_callback:
                     self.status_callback(
                         f"Processando "
@@ -157,6 +213,8 @@ class FileProcessor:
                     )
 
                     while True:
+
+                        self._check_cancel()
 
                         batches = reader.next_batches(1)
 
@@ -191,14 +249,7 @@ class FileProcessor:
                                     r"(KIJO.*)",
                                     1
                                 )
-                                .alias("raw_kijo"),
-                                pl.col("line")
-                                .str.extract(
-                                    r"(\d{4}-\d{2}-\d{2}\s+\d{2}:\d{2}:\d{2})",
-                                    1
-                                )
-                                .fill_null("")
-                                .alias("timestamp")
+                                .alias("raw_kijo")
                             ])
                         )
 
@@ -248,8 +299,7 @@ class FileProcessor:
                             [
                                 df_cols,
                                 df_base.select(
-                                    "raw_kijo",
-                                    "timestamp"
+                                    "raw_kijo"
                                 )
                             ],
                             how="horizontal"
@@ -280,16 +330,15 @@ class FileProcessor:
                                 continue
                             
                             colunas_saida = f_info.get("colunas_saida", None)
-                            timestamps_regra = df_regra["timestamp"].to_list()
                             
                             if colunas_saida is not None:
-                                for ts, kijo_original in zip(timestamps_regra, df_regra["raw_kijo"].to_list()):
+                                for kijo_original in df_regra["raw_kijo"].to_list():
                                     parts = [p.strip() for p in kijo_original.split(",")]
                                     parts_filtradas = [parts[i] for i in colunas_saida if i >= 0 and i < len(parts)]
-                                    linhas_filtradas_por_regra[f_id].append((ts, ",".join(parts_filtradas)))
+                                    linhas_filtradas_por_regra[f_id].append(",".join(parts_filtradas))
                             else:
-                                for ts, kijo in zip(timestamps_regra, df_regra["raw_kijo"].to_list()):
-                                    linhas_filtradas_por_regra[f_id].append((ts, kijo))
+                                for kijo in df_regra["raw_kijo"].to_list():
+                                    linhas_filtradas_por_regra[f_id].append(kijo)
 
                         # ======================================
                         # DEDUPLICAÇÃO E SALVAMENTO
@@ -304,11 +353,11 @@ class FileProcessor:
                                 linhas_out = []
                                 
                                 if deduplicar:
-                                    for ts, linha in linhas_regra:
+                                    for linha in linhas_regra:
                                         h = xxhash.xxh64(linha).intdigest()
                                         if h not in hashes_vistos:
                                             hashes_vistos.add(h)
-                                            linhas_out.append((ts, linha))
+                                            linhas_out.append(linha)
                                         else:
                                             linhas_duplicadas += 1
                                 else:
@@ -318,11 +367,9 @@ class FileProcessor:
                                     continue
                                     
                                 total_linhas_filtradas += len(linhas_out)
-                                timestamps_out = [t[0] for t in linhas_out]
-                                dados_out = [t[1] for t in linhas_out]
-                                df_out = pl.DataFrame({"timestamp": timestamps_out, "raw_kijo": dados_out})
+                                df_out = pl.DataFrame({"raw_kijo": linhas_out})
                                 with open(temp_file, "ab") as f_out:
-                                    df_out.write_csv(f_out, include_header=False, separator="\x01", quote_style="never")
+                                    df_out.write_csv(f_out, include_header=False, quote_style="never")
                         else:
                             linhas_filtradas_no_batch = []
                             for linhas in linhas_filtradas_por_regra.values():
@@ -333,11 +380,11 @@ class FileProcessor:
                                 
                             linhas_out = []
                             if deduplicar:
-                                for ts, linha in linhas_filtradas_no_batch:
+                                for linha in linhas_filtradas_no_batch:
                                     h = xxhash.xxh64(linha).intdigest()
                                     if h not in hashes_vistos:
                                         hashes_vistos.add(h)
-                                        linhas_out.append((ts, linha))
+                                        linhas_out.append(linha)
                                     else:
                                         linhas_duplicadas += 1
                             else:
@@ -347,11 +394,9 @@ class FileProcessor:
                                 continue
                                 
                             total_linhas_filtradas += len(linhas_out)
-                            timestamps_out = [t[0] for t in linhas_out]
-                            dados_out = [t[1] for t in linhas_out]
-                            df_out = pl.DataFrame({"timestamp": timestamps_out, "raw_kijo": dados_out})
+                            df_out = pl.DataFrame({"raw_kijo": linhas_out})
                             with open(temp_csv_final, "ab") as f_out:
-                                df_out.write_csv(f_out, include_header=False, separator="\x01", quote_style="never")
+                                df_out.write_csv(f_out, include_header=False, quote_style="never")
 
                 except Exception as e:
 
@@ -359,6 +404,10 @@ class FileProcessor:
                         f"Falha no arquivo "
                         f"{arquivo}: {e}"
                     )
+
+                # Fecha reader e libera memory-maps antes do próximo arquivo
+                _ensure_reader_closed(reader)
+                gc.collect()
 
                 self.tamanho_processado += (
                     tamanho_arquivo
@@ -369,6 +418,8 @@ class FileProcessor:
             # ==================================================
             # FINALIZAÇÃO
             # ==================================================
+
+            self._check_cancel()
 
             if total_linhas_filtradas == 0:
                 raise ValueError(
@@ -382,62 +433,37 @@ class FileProcessor:
 
             if separar_arquivos:
                 for f_id, paths in temp_files_por_regra.items():
+                    self._check_cancel()
                     t_file = paths["temp"]
                     f_file = paths["final"]
                     if os.path.exists(t_file):
-                        # Ordena por data/hora do cabeçalho original
-                        if self.status_callback:
-                            self.status_callback("Ordenando por data/hora...")
-                        df_sort = pl.read_csv(
-                            t_file,
-                            has_header=False,
-                            new_columns=["timestamp", "raw_kijo"],
-                            separator="\x01",
-                            truncate_ragged_lines=True,
-                            quote_char=None
-                        )
-                        df_sort = df_sort.sort("timestamp")
-                        df_sorted = df_sort.select("raw_kijo")
-                        df_sorted.write_csv(t_file, include_header=False, quote_style="never")
-
                         if "TXT" in formato or "CSV" in formato:
-                            os.replace(t_file, f_file)
+                            _safe_replace(t_file, f_file)
                         elif "Excel" in formato:
                             self._converter_csv_para_excel(f_file, t_file)
-                            os.remove(t_file)
+                            _safe_remove(t_file)
+                        # garante liberação de handles
+                        gc.collect()
             else:
                 if not temp_csv_final or not os.path.exists(temp_csv_final):
                     raise ValueError("Nenhum dado encontrado.")
 
-                # Ordena por data/hora do cabeçalho original
-                if self.status_callback:
-                    self.status_callback("Ordenando por data/hora...")
-                df_sort = pl.read_csv(
-                    temp_csv_final,
-                    has_header=False,
-                    new_columns=["timestamp", "raw_kijo"],
-                    separator="\x01",
-                    truncate_ragged_lines=True,
-                    quote_char=None
-                )
-                df_sort = df_sort.sort("timestamp")
-                df_sorted = df_sort.select("raw_kijo")
-                df_sorted.write_csv(temp_csv_final, include_header=False, quote_style="never")
+                self._check_cancel()
 
                 if (
                     "TXT" in formato
                     or "CSV" in formato
                 ):
-                    os.replace(
-                        temp_csv_final,
-                        caminho_saida
-                    )
+                    _safe_replace(temp_csv_final, caminho_saida)
                     temp_csv_final = None
                 elif "Excel" in formato:
                     self._converter_csv_para_excel(
                         caminho_saida,
                         temp_csv_final
                     )
+                    _safe_remove(temp_csv_final)
+                    temp_csv_final = None
+                gc.collect()
 
             duracao = time.time() - inicio
 
@@ -482,22 +508,10 @@ class FileProcessor:
 
             if separar_arquivos:
                 for paths in temp_files_por_regra.values():
-                    if os.path.exists(paths["temp"]):
-                        try:
-                            os.remove(paths["temp"])
-                        except:
-                            pass
+                    _safe_remove(paths["temp"])
             else:
-                if (
-                    temp_csv_final
-                    and os.path.exists(
-                        temp_csv_final
-                    )
-                ):
-                    try:
-                        os.remove(temp_csv_final)
-                    except:
-                        pass
+                if temp_csv_final:
+                    _safe_remove(temp_csv_final)
             
             # Forçar liberação de memória RAM para o SO
             gc.collect()
@@ -549,6 +563,8 @@ class FileProcessor:
                 self.arquivos_selecionados
             ):
 
+                self._check_cancel()
+
                 tamanho_arquivo = os.path.getsize(
                     arquivo
                 )
@@ -566,6 +582,8 @@ class FileProcessor:
                 )
 
                 while True:
+
+                    self._check_cancel()
 
                     batches = reader.next_batches(1)
 
@@ -615,6 +633,10 @@ class FileProcessor:
 
                 self.atualizar_progresso()
 
+            # Fecha reader e libera memory-maps após cada arquivo (Passagem 1)
+            _ensure_reader_closed(reader)
+            gc.collect()
+
             # ==============================================
             # HASHES DUPLICADOS
             # ==============================================
@@ -648,13 +670,15 @@ class FileProcessor:
             self.tamanho_processado = 0
 
             if os.path.exists(temp_csv_final):
-                os.remove(temp_csv_final)
+                _safe_remove(temp_csv_final)
 
             linhas_exportadas = 0
 
             for idx, arquivo in enumerate(
                 self.arquivos_selecionados
             ):
+
+                self._check_cancel()
 
                 tamanho_arquivo = os.path.getsize(
                     arquivo
@@ -673,6 +697,8 @@ class FileProcessor:
                 )
 
                 while True:
+
+                    self._check_cancel()
 
                     batches = reader.next_batches(1)
 
@@ -751,6 +777,10 @@ class FileProcessor:
 
                 self.atualizar_progresso()
 
+            # Fecha reader e libera memory-maps após cada arquivo (Passagem 2)
+            _ensure_reader_closed(reader)
+            gc.collect()
+
             # ==============================================
             # FINALIZAÇÃO
             # ==============================================
@@ -785,10 +815,7 @@ class FileProcessor:
             except Exception as e:
                 logging.warning(f"Falha ao ordenar duplicadas: {e}")
 
-            os.replace(
-                temp_csv_final,
-                caminho_saida
-            )
+            _safe_replace(temp_csv_final, caminho_saida)
 
             temp_csv_final = None
 
@@ -831,16 +858,8 @@ class FileProcessor:
 
         finally:
 
-            if (
-                temp_csv_final
-                and os.path.exists(
-                    temp_csv_final
-                )
-            ):
-                try:
-                    os.remove(temp_csv_final)
-                except:
-                    pass
+            if temp_csv_final:
+                _safe_remove(temp_csv_final)
 
             gc.collect()
 
